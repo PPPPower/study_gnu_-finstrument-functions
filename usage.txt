@@ -1,0 +1,63 @@
+References:
+http://ju.outofmemory.cn/entry/90183
+How? http://blog.linux.org.tw/~jserv/archives/001870.html
+Why? __attribute__((__no_instrument_function__))? https://gcc.gnu.org/ml/gcc/2000-06/msg00511.html
+
+跟踪c/c++代码的执行流程
+gcc提供了编译参数：-finstrument-functions 可以在函数进入，离开某个函数的时候执行一个特殊的回调，这就意味着，我们可以在这个地方做一个事情。 
+这两个回调如下：
+进入函数： 
+void __attribute__((__no_instrument_function__)) __cyg_profile_func_enter(void *this_func, void *call_site)
+离开函数： 
+void __attribute__((__no_instrument_function__)) __cyg_profile_func_exit(void *this_func, void *call_site)
+this_func分别对应了二进制文件的地址，十六进制。 
+
+除此以外，还有两个程序开始和结束时候执行的函数回调：
+void main_constructor( void ) 
+void main_deconstructor( void )
+
+结合以上知识，写出自己的调试代码，然后，获取每个函数的调用过程： 
+包含q_debug.h
+---------------------------------------------------------------------------------------------------
+#define XY_DEBUG_H                                                                                                            
+
+#include <stdio.h>
+#include <stdlib.h>
+
+#define DUMP(func, call)  fprintf(fp,"%s: func = %p, called by = %p\n", __FUNCTION__, func, call)
+void main_constructor( void ) __attribute__ ((no_instrument_function, constructor));
+void main_destructor( void ) __attribute__ ((no_instrument_function, destructor));
+
+#endif
+---------------------------------------------------------------------------------------------------
+
+在你的程序里，引入以上头文件， 对应的函数实现：
+---------------------------------------------------------------------------------------------------
+#include"q_debug.h"                                                                            
+static FILE *fp;
+void main_constructor( void ) {
+     fp = fopen( "trace.txt", "w" );
+     if (fp == NULL) exit(-1);
+}
+void main_deconstructor( void ) {
+     fclose( fp );
+}
+void __attribute__((__no_instrument_function__)) __cyg_profile_func_enter(void *this_func, void *call_site) {
+     DUMP(this_func, call_site);
+}
+
+void __attribute__((__no_instrument_function__)) __cyg_profile_func_exit(void *this_func, void *call_site) {
+     DUMP(this_func, call_site);
+}
+---------------------------------------------------------------------------------------------------
+
+编译参数附加：-g -finstrument-functions 
+mac下还需要附加：-fno-pie -g -finstrument-functions
+
+这样将拿到函数的十六进制地址： 
+比如：__cyg_profile_func_enter: func = 0x100000d00, called by = 0x7fff8b3455fd
+
+地址转文件名和行数： 
+mac下用：xcrun atos -o fun $l 
+linux下用：addr2line -e fun $l
+其中$l是对应的十六进制地址。
